@@ -21,10 +21,10 @@ function getSample () {
   var apiResponseMock = {};
   var topicMock = {
     get: sinon.stub(),
-    publish: sinon.stub().callsArgWith(1, null, [1], apiResponseMock),
-    delete: sinon.stub().callsArgWith(0, null, apiResponseMock)
+    publish: sinon.stub().yields(null, [1], apiResponseMock),
+    delete: sinon.stub().yields(null, apiResponseMock)
   };
-  topicMock.get.callsArgWith(1, null, topicMock, apiResponseMock);
+  topicMock.get.yields(null, topicMock, apiResponseMock);
   var topicsMock = [
     {
       name: topicName
@@ -33,9 +33,10 @@ function getSample () {
 
   var pubsubMock = {
     topic: sinon.stub().returns(topicMock),
-    getTopics: sinon.stub().callsArgWith(0, null, topicsMock)
+    getTopics: sinon.stub().yields(null, topicsMock)
   };
   var PubSubMock = sinon.stub().returns(pubsubMock);
+
   return {
     program: proxyquire('../topics', {
       '@google-cloud/pubsub': PubSubMock
@@ -58,22 +59,26 @@ describe('pubsub:topics', function () {
 
       sample.program.createTopic(topicName, callback);
 
-      assert.ifError(callback.firstCall.args[0]);
-      assert.strictEqual(callback.firstCall.args[1], sample.mocks.topic);
-      assert.strictEqual(callback.firstCall.args[2], sample.mocks.apiResponse);
-      assert(console.log.calledWith('Created topic: %s', topicName));
+      assert.equal(sample.mocks.topic.get.calledOnce, true);
+      assert.deepEqual(sample.mocks.topic.get.firstCall.args.slice(0, -1), [{
+        autoCreate: true
+      }]);
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [null, sample.mocks.topic, sample.mocks.apiResponse]);
+      assert.equal(console.log.calledOnce, true);
+      assert.deepEqual(console.log.firstCall.args, ['Created topic: %s', topicName]);
     });
 
     it('should handle error', function () {
       var sample = getSample();
       var error = new Error('error');
       var callback = sinon.stub();
-      sample.mocks.topic.get.callsArgWith(1, error);
+      sample.mocks.topic.get.yields(error);
 
       sample.program.createTopic(topicName, callback);
 
-      assert(callback.firstCall.args[0]);
-      assert(callback.firstCall.args[0].message === 'error');
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [error]);
     });
   });
 
@@ -84,21 +89,24 @@ describe('pubsub:topics', function () {
 
       sample.program.deleteTopic(topicName, callback);
 
-      assert.ifError(callback.firstCall.args[0]);
-      assert.strictEqual(callback.firstCall.args[1], sample.mocks.apiResponse);
-      assert(console.log.calledWith('Deleted topic: %s', topicName));
+      assert.equal(sample.mocks.topic.delete.calledOnce, true);
+      assert.deepEqual(sample.mocks.topic.delete.firstCall.args.slice(0, -1), []);
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [null, sample.mocks.apiResponse]);
+      assert.equal(console.log.calledOnce, true);
+      assert.deepEqual(console.log.firstCall.args, ['Deleted topic: %s', topicName]);
     });
 
     it('should handle error', function () {
       var sample = getSample();
       var error = new Error('error');
       var callback = sinon.stub();
-      sample.mocks.topic.delete.callsArgWith(0, error);
+      sample.mocks.topic.delete.yields(error);
 
       sample.program.deleteTopic(topicName, callback);
 
-      assert(callback.firstCall.args[0]);
-      assert(callback.firstCall.args[0].message === 'error');
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [error]);
     });
   });
 
@@ -109,23 +117,67 @@ describe('pubsub:topics', function () {
 
       sample.program.publishMessage(topicName, message, callback);
 
-      assert.ifError(callback.firstCall.args[0]);
-      assert.deepEqual(callback.firstCall.args[1], [1]);
-      assert.strictEqual(callback.firstCall.args[2], sample.mocks.apiResponse);
-      assert(console.log.calledWith('Published %d message(s)!', callback.firstCall.args[1].length));
+      assert.equal(sample.mocks.topic.publish.calledOnce, true);
+      assert.deepEqual(sample.mocks.topic.publish.firstCall.args.slice(0, -1), [message]);
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [null, [1], sample.mocks.apiResponse]);
+      assert.equal(console.log.calledOnce, true);
+      assert.deepEqual(console.log.firstCall.args, ['Published %d message(s)!', 1]);
     });
 
     it('should handle error', function () {
       var sample = getSample();
       var error = new Error('error');
       var callback = sinon.stub();
-      sample.mocks.topic.publish.callsArgWith(1, error);
+      sample.mocks.topic.publish.yields(error);
 
       sample.program.publishMessage(topicName, message, callback);
 
-      assert(callback.firstCall.args[0]);
-      assert(callback.firstCall.args[0].message === 'error');
-      assert.equal(callback.firstCall.args[1], undefined);
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [error]);
+    });
+  });
+
+  describe('publishOrderedMessage', function () {
+    it('should publish ordered messages', function () {
+      var sample = getSample();
+      var callback = sinon.stub();
+
+      sample.program.publishOrderedMessage(topicName, message, callback);
+
+      assert.equal(sample.mocks.topic.publish.calledOnce, true);
+      assert.deepEqual(sample.mocks.topic.publish.firstCall.args.slice(0, -1), [{
+        data: message.data,
+        messageId: 1
+      }]);
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [null, [1], sample.mocks.apiResponse]);
+      assert.equal(console.log.calledOnce, true);
+      assert.deepEqual(console.log.firstCall.args, ['Published %d message(s)!', 1]);
+
+      sample.program.publishOrderedMessage(topicName, message, callback);
+
+      assert.equal(sample.mocks.topic.publish.calledTwice, true);
+      assert.deepEqual(sample.mocks.topic.publish.secondCall.args.slice(0, -1), [{
+        data: message.data,
+        messageId: 2
+      }]);
+      assert.equal(callback.calledTwice, true);
+      assert.deepEqual(callback.secondCall.args, [null, [1], sample.mocks.apiResponse]);
+      assert.equal(console.log.calledTwice, true);
+      assert.deepEqual(console.log.secondCall.args, ['Published %d message(s)!', 1]);
+    });
+
+    it('should handle error', function () {
+      var sample = getSample();
+      var error = new Error('error');
+      var callback = sinon.stub();
+      sample.mocks.topic.publish.yields(error);
+
+      sample.program.publishOrderedMessage(topicName, message, callback);
+
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [error]);
     });
   });
 
@@ -136,22 +188,24 @@ describe('pubsub:topics', function () {
 
       sample.program.listTopics(callback);
 
-      assert.ifError(callback.firstCall.args[0]);
-      assert.strictEqual(callback.firstCall.args[1], sample.mocks.topics);
-      assert(console.log.calledWith('Found %d topics!', callback.firstCall.args[1].length));
+      assert.equal(sample.mocks.pubsub.getTopics.calledOnce, true);
+      assert.deepEqual(sample.mocks.pubsub.getTopics.firstCall.args.slice(0, -1), []);
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [null, sample.mocks.topics]);
+      assert.equal(console.log.calledOnce, true);
+      assert.deepEqual(console.log.firstCall.args, ['Found %d topics!', sample.mocks.topics.length]);
     });
 
     it('should handle error', function () {
       var sample = getSample();
       var error = new Error('error');
       var callback = sinon.stub();
-      sample.mocks.pubsub.getTopics.callsArgWith(0, error);
+      sample.mocks.pubsub.getTopics.yields(error);
 
       sample.program.listTopics(callback);
 
-      assert(callback.firstCall.args[0]);
-      assert(callback.firstCall.args[0].message === 'error');
-      assert.equal(callback.firstCall.args[1], undefined);
+      assert.equal(callback.calledOnce, true);
+      assert.deepEqual(callback.firstCall.args, [error]);
     });
   });
 
