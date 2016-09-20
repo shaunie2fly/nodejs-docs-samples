@@ -80,6 +80,36 @@ function publishMessage (topicName, message, callback) {
   });
 }
 
+var publishCounterValue = 1;
+
+function getPublishCounterValue () {
+  return publishCounterValue;
+}
+
+function setPublishCounterValue (value) {
+  publishCounterValue = value;
+}
+
+function publishOrderedMessage (topicName, message, callback) {
+  var pubsub = PubSub();
+  var topic = pubsub.topic(topicName);
+
+  // Assign an id to the message
+  message.messageId = getPublishCounterValue();
+
+  topic.publish(message, function (err, messageIds, apiResponse) {
+    if (err) {
+      return callback(err);
+    }
+
+    // Update the counter value
+    setPublishCounterValue(message.messageId + 1);
+
+    console.log('Published %d message(s)!', messageIds.length);
+    return callback(null, messageIds, apiResponse);
+  });
+}
+
 function listTopics (callback) {
   var pubsub = PubSub();
 
@@ -102,6 +132,7 @@ var program = module.exports = {
   createTopic: createTopic,
   deleteTopic: deleteTopic,
   publishMessage: publishMessage,
+  publishOrderedMessage: publishOrderedMessage,
   listTopics: listTopics,
   main: function (args) {
     // Run the command-line program

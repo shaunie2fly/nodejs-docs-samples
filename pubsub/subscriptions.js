@@ -136,6 +136,65 @@ function pullMessages (subscriptionName, callback) {
   });
 }
 
+var subscribeCounterValue = 1;
+
+function getSubscribeCounterValue () {
+  return subscribeCounterValue;
+}
+
+function setSubscribeCounterValue (value) {
+  subscribeCounterValue = value;
+}
+
+// [START pull_ordered_messages]
+var outstandingMessages = {};
+
+function pullOrderedMessages (subscriptionName, callback) {
+  var pubsub = PubSub();
+  var subscription = pubsub.subscription(subscriptionName);
+
+  // Pull any messages on the subscription
+  // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/pubsub/latest/pubsub/subscription?method=pull
+  subscription.pull(function (err, messages) {
+    if (err) {
+      return callback(err);
+    }
+
+    // Sort messages in order of increasing messageId
+    messages.sort(function (a, b) {
+      return b.messageId - a.messageId;
+    });
+
+    // Iterate over messages in order of increasing messageId
+    messages.forEach(function (message) {
+      outstandingMessages[message.messageId] = message;
+    });
+
+    var outstandingMessageIds = Object.keys(outstandingMessages);
+    outstandingMessageIds.sort();
+
+    outstandingMessageIds.forEach(function (messageId) {
+      var counter = getSubscribeCounterValue();
+      var message = outstandingMessages[messageId];
+
+      if (messageId < counter) {
+        // The message has already been processed
+        subscription.ack(message.ackId);
+        delete outstandingMessages[messageId];
+      } else if (messageId === counter) {
+        handleMessage(message);
+        setSubscribeCounterValue(messageId + 1);
+        subscription.ack(message.ackId);
+        delete outstandingMessages[messageId];
+      } else {
+        // Have not yet processed the message on which this message is dependent
+        return false;
+      }
+    });
+  });
+}
+// [END pull_ordered_messages]
+
 // The command-line program
 var cli = require('yargs');
 var makeHandler = require('../utils').makeHandler;
@@ -145,6 +204,7 @@ var program = module.exports = {
   deleteSubscription: deleteSubscription,
   getSubscriptionMetadata: getSubscriptionMetadata,
   pullMessages: pullMessages,
+  pullOrderedMessages: pullOrderedMessages,
   listSubscriptions: listSubscriptions,
   listAllSubscriptions: listAllSubscriptions,
   main: function (args) {
