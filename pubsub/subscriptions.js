@@ -13,45 +13,43 @@
 
 'use strict';
 
-// [START setup]
-// By default, the client will authenticate using the service account file
-// specified by the GOOGLE_APPLICATION_CREDENTIALS environment variable and use
-// the project specified by the GCLOUD_PROJECT environment variable. See
-// https://googlecloudplatform.github.io/gcloud-node/#/docs/google-cloud/latest/guides/authentication
-var PubSub = require('@google-cloud/pubsub');
-// [END setup]
+var pubsubClient = require('@google-cloud/pubsub')();
 
+// [START pubsub_create_subscription]
 function createSubscription (topicName, subscriptionName, callback) {
-  var pubsub = PubSub();
-  var topic = pubsub.topic(topicName);
+  // References an existing topic, e.g. "my-topic"
+  var topic = pubsubClient.topic(topicName);
 
-  // Get the subscription if it exists, otherwise create the subscription
-  // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/pubsub/latest/pubsub/topic?method=subscribe
-  topic.subscribe(subscriptionName, function (err, subscription, apiResponse) {
+  // Creates a new subscription, e.g. "my-new-subscription"
+  topic.subscribe(subscriptionName, function (err, subscription) {
     if (err) {
-      return callback(err);
+      callback(err);
+      return;
     }
 
-    console.log('Created subscription %s to topic %s', subscriptionName, topicName);
-    return callback(null, subscription, apiResponse);
+    console.log('Created subscription: %s', subscription.name);
+    callback();
   });
 }
+// [END pubsub_create_subscription]
 
+// [START pubsub_delete_subscription]
 function deleteSubscription (subscriptionName, callback) {
-  var pubsub = PubSub();
-  var subscription = pubsub.subscription(subscriptionName);
+  // References an existing subscription, e.g. "my-subscription"
+  var subscription = pubsubClient.subscription(subscriptionName);
 
-  // Delete the subscription
-  // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/pubsub/latest/pubsub/subscription?method=delete
-  subscription.delete(function (err, apiResponse) {
+  // Deletes the subscription
+  subscription.delete(function (err) {
     if (err) {
-      return callback(err);
+      callback(err);
+      return;
     }
 
-    console.log('Deleted subscription: %s', subscriptionName);
-    return callback(null, apiResponse);
+    console.log('Deleted subscription: %s', subscription.name);
+    callback();
   });
 }
+// [END pubsub_delete_subscription]
 
 function getSubscriptionMetadata (subscriptionName, callback) {
   var pubsub = PubSub();
@@ -69,36 +67,46 @@ function getSubscriptionMetadata (subscriptionName, callback) {
   });
 }
 
-function listSubscriptions (topicName, callback) {
-  var pubsub = PubSub();
-  var topic = pubsub.topic(topicName);
+// [START pubsub_list_subscriptions]
+function listSubscriptions (callback) {
+  // Lists all subscriptions in the current project
+  pubsubClient.getSubscriptions(function (err, subscriptions) {
+    if (err) {
+      callback(err);
+      return;
+    }
 
-  // List all subscriptions for the specified topic
+    console.log('Subscriptions:');
+    subscriptions.forEach(function (subscription) {
+      console.log(subscription.name);
+    });
+    callback();
+  });
+}
+// [END pubsub_list_subscriptions]
+
+// [START pubsub_list_topic_subscriptions]
+function listTopicSubscriptions (topicName, callback) {
+  // Reference an existing topic, e.g. "my-topic"
+  // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/google-cloud/latest/pubsub?method=topic
+  var topic = pubsubClient.topic(topicName);
+
+  // Lists all subscriptions for the topic
   // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/pubsub/latest/pubsub/topic?method=getSubscriptions
   topic.getSubscriptions(function (err, subscriptions) {
     if (err) {
-      return callback(err);
+      callback(err);
+      return;
     }
 
-    console.log('Found %d subscription(s)!', subscriptions.length);
-    return callback(null, subscriptions);
+    console.log('Subscriptions:');
+    subscriptions.forEach(function (subscription) {
+      console.log(subscription.name);
+    });
+    callback();
   });
 }
-
-function listAllSubscriptions (callback) {
-  var pubsub = PubSub();
-
-  // List all subscriptions
-  // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/pubsub/latest/pubsub?method=getSubscriptions
-  pubsub.getSubscriptions(function (err, subscriptions) {
-    if (err) {
-      return callback(err);
-    }
-
-    console.log('Found %d subscription(s)!', subscriptions.length);
-    return callback(null, subscriptions);
-  });
-}
+// [END pubsub_list_topic_subscriptions]
 
 function handleMessage (message) {
   console.log('received message: ' + message.data);
@@ -146,7 +154,7 @@ var program = module.exports = {
   getSubscriptionMetadata: getSubscriptionMetadata,
   pullMessages: pullMessages,
   listSubscriptions: listSubscriptions,
-  listAllSubscriptions: listAllSubscriptions,
+  listTopicSubscriptions: listTopicSubscriptions,
   main: function (args) {
     // Run the command-line program
     cli.help().strict().parse(args).argv;
@@ -156,29 +164,29 @@ var program = module.exports = {
 cli
   .demand(1)
   .command('create <topicName> <subscriptionName>', 'Creates a new subscription.', {}, function (options) {
-    program.createSubscription(options.topicName, options.subscriptionName, makeHandler(true, 'id'));
+    program.createSubscription(options.topicName, options.subscriptionName, makeHandler(false));
   })
-  .command('list [topicName]', 'Lists subscriptions, optionally filtering by a topic.', {}, function (options) {
+  .command('list [topicName]', 'Lists all subscriptions in the current project, optionally filtering by a topic.', {}, function (options) {
     if (options.topicName) {
-      program.listSubscriptions(options.topicName, makeHandler(true, 'id'));
+      program.listTopicSubscriptions(options.topicName, makeHandler(false));
     } else {
-      program.listAllSubscriptions(makeHandler(true, 'id'));
+      program.listSubscriptions(makeHandler(false));
     }
   })
-  .command('get <subscriptionName>', 'Gets the metadata the metadata for the specified subscription.', {}, function (options) {
+  .command('get <subscriptionName>', 'Gets the metadata for a subscription.', {}, function (options) {
     program.getSubscriptionMetadata(options.subscriptionName, makeHandler());
   })
-  .command('pull <subscriptionName>', 'Pulls messages for the specified subscription.', {}, function (options) {
+  .command('pull <subscriptionName>', 'Pulls messages for a subscription.', {}, function (options) {
     program.pullMessages(options.subscriptionName, makeHandler(false));
   })
-  .command('delete <subscriptionName>', 'Deletes the specified subscription.', {}, function (options) {
+  .command('delete <subscriptionName>', 'Deletes a subscription.', {}, function (options) {
     program.deleteSubscription(options.subscriptionName, makeHandler(false));
   })
   .example('node $0 create greetings greetings-worker-1', 'Creates a subscription named "greetings-worker-1" to a topic named "greetings".')
   .example('node $0 delete greetings-worker-1', 'Deletes a subscription named "greetings-worker-1".')
   .example('node $0 pull greetings-worker-1', 'Pulls messages for a subscription named "greetings-worker-1".')
-  .example('node $0 list', 'Lists all subscriptions.')
-  .example('node $0 list greetings', 'Lists subscriptions for a topic named "greetings".')
+  .example('node $0 list', 'Lists all subscriptions in the current project.')
+  .example('node $0 list greetings', 'Lists all subscriptions for a topic named "greetings".')
   .wrap(120)
   .recommendCommands()
   .epilogue('For more information, see https://cloud.google.com/pubsub/docs');

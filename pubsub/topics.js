@@ -13,52 +13,46 @@
 
 'use strict';
 
-// [START setup]
-// By default, the client will authenticate using the service account file
-// specified by the GOOGLE_APPLICATION_CREDENTIALS environment variable and use
-// the project specified by the GCLOUD_PROJECT environment variable. See
-// https://googlecloudplatform.github.io/gcloud-node/#/docs/google-cloud/latest/guides/authentication
-var PubSub = require('@google-cloud/pubsub');
-// [END setup]
+var pubsubClient = require('@google-cloud/pubsub')();
 
+// [START pubsub_create_topic]
 function createTopic (topicName, callback) {
-  var pubsub = PubSub();
-  var topic = pubsub.topic(topicName);
-
-  // Get the topic if it exists, otherwise create the topic
-  // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/pubsub/latest/pubsub/topic?method=get
-  topic.get({
-    autoCreate: true
-  }, function (err, topic, apiResponse) {
+  // Creates a new topic, e.g. "my-new-topic"
+  pubsubClient.createTopic(topicName, function (err, topic) {
     if (err) {
-      return callback(err);
+      callback(err);
+      return;
     }
 
-    console.log('Created topic: %s', topicName);
-    return callback(null, topic, apiResponse);
+    console.log('Created topic: %s', topic.name);
+    callback();
   });
 }
+// [END pubsub_create_topic]
 
+// [START pubsub_delete_topic]
 function deleteTopic (topicName, callback) {
-  var pubsub = PubSub();
-  var topic = pubsub.topic(topicName);
+  // References an existing topic, e.g. "my-topic"
+  var topic = pubsubClient.topic(topicName);
 
-  // Delete the topic
-  // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/pubsub/latest/pubsub/topic?method=delete
-  topic.delete(function (err, apiResponse) {
+  // Deletes the topic
+  topic.delete(function (err) {
     if (err) {
-      return callback(err);
+      callback(err);
+      return;
     }
 
-    // Deleted the topic
-    console.log('Deleted topic: %s', topicName);
-    return callback(null, apiResponse);
+    console.log('Deleted topic: %s', topic.name);
+    callback();
   });
 }
+// [END pubsub_delete_topic]
 
+// [START pubsub_publish_message]
 function publishMessage (topicName, message, callback) {
-  var pubsub = PubSub();
-  var topic = pubsub.topic(topicName);
+  // References an existing topic, e.g. "my-topic"
+  // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/google-cloud/latest/pubsub?method=topic
+  var topic = pubsubClient.topic(topicName);
 
   /**
    * Publish a message to the topic, e.g. { "data": "Hello, world!" }. In
@@ -70,29 +64,35 @@ function publishMessage (topicName, message, callback) {
    * Topic#publish() takes either a single message object or an array of message
    * objects. See https://googlecloudplatform.github.io/google-cloud-node/#/docs/pubsub/latest/pubsub/topic?method=publish
    */
-  topic.publish(message, function (err, messageIds, apiResponse) {
+  topic.publish(message, function (err, messageIds) {
     if (err) {
-      return callback(err);
+      callback(err);
+      return;
     }
 
-    console.log('Published %d message(s)!', messageIds.length);
-    return callback(null, messageIds, apiResponse);
+    console.log('Published message: %s', JSON.stringify(message));
+    callback();
   });
 }
+// [END pubsub_publish_message]
 
+// [START pubsub_list_topics]
 function listTopics (callback) {
-  var pubsub = PubSub();
-
-  // See https://googlecloudplatform.github.io/google-cloud-node/#/docs/pubsub/latest/pubsub?method=getTopics
-  pubsub.getTopics(function (err, topics) {
+  // Lists all topics in the current project
+  pubsubClient.getTopics(function (err, topics) {
     if (err) {
-      return callback(err);
+      callback(err);
+      return;
     }
 
-    console.log('Found %d topics!', topics.length);
-    return callback(null, topics);
+    console.log('Topics:');
+    topics.forEach(function (topic) {
+      console.log(topic.name);
+    });
+    callback();
   });
 }
+// [END pubsub_list_topics]
 
 // The command-line program
 var cli = require('yargs');
@@ -112,25 +112,25 @@ var program = module.exports = {
 cli
   .demand(1)
   .command('create <topicName>', 'Creates a new topic.', {}, function (options) {
-    program.createTopic(options.topicName, makeHandler(true, 'id'));
+    program.createTopic(options.topicName, makeHandler(false));
   })
-  .command('list', 'Lists topics.', {}, function (options) {
-    program.listTopics(makeHandler(true, 'id'));
+  .command('list', 'Lists all topics in the current project.', {}, function (options) {
+    program.listTopics(makeHandler(false));
   })
-  .command('publish <topicName> <message>', 'Publish a message to the specified topic.', {}, function (options) {
+  .command('publish <topicName> <message>', 'Publishes a message.', {}, function (options) {
     try {
       options.message = JSON.parse(options.message);
-      program.publishMessage(options.topicName, options.message, makeHandler());
+      program.publishMessage(options.topicName, options.message, makeHandler(false));
     } catch (err) {
       return console.error('"message" must be a valid JSON string!');
     }
   })
-  .command('delete <topicName>', 'Deletes the specified topic.', {}, function (options) {
+  .command('delete <topicName>', 'Deletes the a topic.', {}, function (options) {
     program.deleteTopic(options.topicName, makeHandler(false));
   })
   .example('node $0 create greetings', 'Creates a new topic named "greetings".')
-  .example('node $0 list', 'Lists all topics.')
-  .example('node $0 publish greetings \'{"data":"Hello world!"}\'', 'Publishes a message to "greetings".')
+  .example('node $0 list', 'Lists all topics in the current project.')
+  .example('node $0 publish greetings \'{"data":"Hello world!"}\'', 'Publishes a message.')
   .example('node $0 delete greetings', 'Deletes a topic named "greetings".')
   .wrap(120)
   .recommendCommands()
