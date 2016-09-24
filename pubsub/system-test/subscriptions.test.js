@@ -13,128 +13,129 @@
 
 'use strict';
 
-var uuid = require('node-uuid');
-var PubSub = require('@google-cloud/pubsub');
-var program = require('../subscriptions');
+const pubsub = require(`@google-cloud/pubsub`)();
+const uuid = require(`node-uuid`);
+const path = require(`path`);
+const run = require(`../../utils`).run;
 
-var pubsub = PubSub();
-var topicNameOne = 'nodejs-docs-samples-test-' + uuid.v4();
-var topicNameTwo = 'nodejs-docs-samples-test-' + uuid.v4();
-var subscriptionNameOne = 'nodejs-docs-samples-test-sub-' + uuid.v4();
-var subscriptionNameTwo = 'nodejs-docs-samples-test-sub-' + uuid.v4();
-var projectId = process.env.GCLOUD_PROJECT;
-var fullSubscriptionNameOne = 'projects/' + projectId + '/subscriptions/' + subscriptionNameOne;
-var fullSubscriptionNameTwo = 'projects/' + projectId + '/subscriptions/' + subscriptionNameTwo;
+const cwd = path.join(__dirname, `..`);
+const topicName = `nodejs-docs-samples-test-${uuid.v4()}`;
+const subscriptionName = `nodejs-docs-samples-test-sub-${uuid.v4()}`;
+const projectId = process.env.GCLOUD_PROJECT;
+const fullTopicName = `projects/${projectId}/topics/${topicName}`;
+const fullSubscriptionName = `projects/${projectId}/subscriptions/${subscriptionName}`;
+const cmd = `node subscriptions.js`;
 
-describe('pubsub:subscriptions', function () {
-  before(function (done) {
-    pubsub.topic(topicNameOne).get({
-      autoCreate: true
-    }, function (err) {
-      assert.ifError(err, 'topic creation succeeded');
-
-      pubsub.topic(topicNameTwo).get({
-        autoCreate: true
-      }, function (err, topic) {
-        assert.ifError(err, 'topic creation succeeded');
-
-        topic.subscribe(subscriptionNameTwo, function (err) {
-          assert.ifError(err, 'subscription creation succeeded');
-
-          done();
-        });
-      });
+describe(`pubsub:subscriptions`, () => {
+  before((done) => {
+    pubsub.createTopic(topicName, (err) => {
+      assert.ifError(err);
+      done();
     });
   });
 
-  after(function (done) {
-    pubsub.topic(topicNameOne).delete(done);
-  });
-
-  describe('createSubscription', function () {
-    it('should create a subscription', function (done) {
-      program.createSubscription(topicNameOne, subscriptionNameOne, function (err, subscription, apiResponse) {
-        assert.ifError(err);
-        assert.equal(subscription.name, fullSubscriptionNameOne);
-        assert(console.log.calledWith('Created subscription %s to topic %s', subscriptionNameOne, topicNameOne));
-        assert.notEqual(apiResponse, undefined);
-        // Listing is eventually consistent, so give the index time to update
-        setTimeout(done, 5000);
-      });
-    });
-  });
-
-  describe('getSubscriptionMetadata', function () {
-    it('should get metadata for a subscription', function (done) {
-      program.getSubscriptionMetadata(subscriptionNameOne, function (err, metadata) {
-        assert.ifError(err);
-        assert.equal(metadata.name, fullSubscriptionNameOne);
-        assert(console.log.calledWith('Got metadata for subscription: %s', subscriptionNameOne));
+  after((done) => {
+    pubsub.subscription(subscriptionName).delete(() => {
+      // Ignore any error
+      pubsub.topic(topicName).delete(() => {
+        // Ignore any error
         done();
       });
     });
   });
 
-  describe('listSubscriptions', function () {
-    it('should list subscriptions', function (done) {
-      program.listSubscriptions(topicNameOne, function (err, subscriptions) {
-        assert.ifError(err);
-        assert(Array.isArray(subscriptions));
-        assert(subscriptions.length > 0);
-        var recentlyCreatedSubscriptions = subscriptions.filter(function (subscription) {
-          return subscription.name === fullSubscriptionNameOne || subscription.name === fullSubscriptionNameTwo;
-        });
-        assert.equal(recentlyCreatedSubscriptions.length, 1, 'list only has one newly created subscription');
-        assert.equal(recentlyCreatedSubscriptions[0].name, fullSubscriptionNameOne, 'list has correct newly created subscription');
-        assert(console.log.calledWith('Found %d subscription(s)!', subscriptions.length));
-        done();
-      });
+  it(`should create a subscription`, (done) => {
+    const output = run(`${cmd} create ${topicName} ${subscriptionName}`, cwd);
+    assert.equal(output, `Subscription ${fullSubscriptionName} created.`);
+    pubsub.subscription(subscriptionName).exists((err, exists) => {
+      assert.ifError(err);
+      assert.equal(exists, true);
+      done();
     });
   });
 
-  describe('listAllSubscriptions', function () {
-    it('should list all subscriptions', function (done) {
-      program.listAllSubscriptions(function (err, allSubscriptions) {
-        assert.ifError(err);
-        assert(Array.isArray(allSubscriptions));
-        assert(allSubscriptions.length > 0);
-        var recentlyCreatedAllSubscriptions = allSubscriptions.filter(function (subscription) {
-          return subscription.name === fullSubscriptionNameOne || subscription.name === fullSubscriptionNameTwo;
-        });
-        assert.equal(recentlyCreatedAllSubscriptions.length, 2, 'list has both newly created subscriptions');
-        assert(console.log.calledWith('Found %d subscription(s)!', allSubscriptions.length));
+  it(`should get metadata for a subscription`, () => {
+    const output = run(`${cmd} get ${subscriptionName}`, cwd);
+    const expected = `Subscription: ${fullSubscriptionName}` +
+      `\nTopic: ${fullTopicName}` +
+      `\nPush config: {"pushEndpoint":"","attributes":{}}` +
+      `\nAck deadline (s): 10`;
+    assert.equal(output, expected);
+  });
+
+  it(`should list all subscriptions`, (done) => {
+    // Listing is eventually consistent. Give the indexes time to update.
+    setTimeout(() => {
+      const output = run(`${cmd} list`, cwd);
+      assert.notEqual(output.indexOf(`Subscriptions:`), -1);
+      assert.notEqual(output.indexOf(fullSubscriptionName), -1);
+      done();
+    }, 5000);
+  });
+
+  it(`should list subscriptions for a topic`, (done) => {
+    // Listing is eventually consistent. Give the indexes time to update.
+    setTimeout(() => {
+      const output = run(`${cmd} list ${topicName}`, cwd);
+      assert.notEqual(output.indexOf(`Subscriptions for ${topicName}:`), -1);
+      assert.notEqual(output.indexOf(fullSubscriptionName), -1);
+      done();
+    }, 5000);
+  });
+
+  it(`should pull messages`, (done) => {
+    const expected = `Hello, world!`;
+    pubsub.topic(topicName).publish({ data: expected }, (err, messageIds) => {
+      assert.ifError(err);
+      setTimeout(() => {
+        const output = run(`${cmd} pull ${subscriptionName}`, cwd);
+        const expectedOutput = `Received ${messageIds.length} messages.\n` +
+          `* ${messageIds[0]} "${expected}" {}`;
+        assert.equal(output, expectedOutput);
         done();
-      });
+      }, 5000);
     });
   });
 
-  describe('pullMessages', function () {
-    var expected = 'Hello World!';
-
-    before(function (done) {
-      pubsub.topic(topicNameOne).publish({ data: expected }, done);
-    });
-
-    it('should pull messages', function (done) {
-      program.pullMessages(subscriptionNameOne, function (err, messages) {
-        assert.ifError(err);
-        assert(Array.isArray(messages));
-        assert(messages.length > 0);
-        assert(console.log.calledWith('Pulled %d message(s)!', messages.length));
-        assert(console.log.calledWith('Acked %d message(s)!', messages.length));
-        assert.equal(messages[0].data, expected);
-        done();
-      });
+  it(`should set the IAM policy for a subscription`, (done) => {
+    run(`${cmd} setPolicy ${subscriptionName}`, cwd);
+    pubsub.subscription(subscriptionName).iam.getPolicy((err, policy) => {
+      assert.ifError(err);
+      assert.deepEqual(policy.bindings, [
+        {
+          role: `roles/pubsub.editor`,
+          members: [`group:cloud-logs@google.com`]
+        },
+        {
+          role: `roles/pubsub.viewer`,
+          members: [`allUsers`]
+        }
+      ]);
+      done();
     });
   });
 
-  describe('deleteSubscription', function () {
-    it('should delete a subscription', function (done) {
-      program.deleteSubscription(subscriptionNameOne, function (err) {
-        assert.ifError(err);
-        assert(console.log.calledWith('Deleted subscription: %s', subscriptionNameOne));
-        done();
-      });
+  it(`should get the IAM policy for a subscription`, (done) => {
+    pubsub.subscription(subscriptionName).iam.getPolicy((err, policy) => {
+      assert.ifError(err);
+      const output = run(`${cmd} getPolicy ${subscriptionName}`, cwd);
+      assert.equal(output, `Policy for subscription: ${JSON.stringify(policy)}.`);
+      done();
+    });
+  });
+
+  it(`should test permissions for a subscription`, () => {
+    const output = run(`${cmd} testPermissions ${subscriptionName}`, cwd);
+    assert.notEqual(output.indexOf(`Tested permissions for subscription`), -1);
+  });
+
+  it(`should delete a subscription`, (done) => {
+    const output = run(`${cmd} delete ${subscriptionName}`, cwd);
+    assert.equal(output, `Subscription ${fullSubscriptionName} deleted.`);
+    pubsub.subscription(subscriptionName).exists((err, exists) => {
+      assert.ifError(err);
+      assert.equal(exists, false);
+      done();
     });
   });
 });

@@ -13,6 +13,12 @@
 
 'use strict';
 
+var execSync = require('child_process').execSync;
+
+exports.run = function (cmd, cwd) {
+  return execSync(cmd, { cwd: cwd }).toString().trim();
+};
+
 exports.pick = function (obj, field) {
   if (Array.isArray(field)) {
     var _obj = {};
